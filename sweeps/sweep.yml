@@ -1,0 +1,48 @@
+method: bayes
+metric:
+  goal: minimize
+  name: 'test_loss'
+parameters:
+  graph_hidden_channels:
+    max: 128
+    min: 32
+    distribution: int_uniform
+  graph_out_channels:
+    max: 128
+    min: 32
+    distribution: int_uniform
+  graph_in_channels:
+    max: 128
+    min: 32
+    distribution: int_uniform
+  num_text_layers:
+    max: 4
+    min: 1
+    distribution: int_uniform
+  num_text_heads:
+    max: 4
+    min: 2
+    distribution: int_uniform
+  graph_depth:
+    max: 12
+    min: 3
+    distribution: int_uniform
+  textual_lr:
+    max: 0.001
+    min: 0.000005
+    distribution: uniform
+  visual_lr:
+    max: 0.001
+    min: 0.000005
+    distribution: uniform
+  graph_lr:
+    max: 0.001
+    min: 0.000005
+    distribution: uniform
+
+command:
+  - ${env}
+  - python
+  - "main.py"
+  - "--log_wandb"
+  - ${args}
