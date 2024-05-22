@@ -13,9 +13,9 @@ class GraphConv(nn.Module):
         self.regression_distance = nn.Linear(out_channels, num_categories)
 
         self.activation = nn.GELU()
-        self.gat = GAT(in_channels + 3, hidden_channels, num_layers, out_channels, dropout=dropout)
+        self.gat = GAT(in_channels, hidden_channels, num_layers, out_channels, dropout=dropout)
 
-        self.feature_size = in_channels + 3
+        self.feature_size = in_channels
         # self.output_learnt_emb = torch.nn.Embedding(1, in_channels)
         self.device=device
     @staticmethod
@@ -29,16 +29,14 @@ class GraphConv(nn.Module):
 
         return dot_product.squeeze()  # Squeeze the tensor to remove the extra dimension
 
-    def forward(self, image_features, text_features, content_indices, gt_indices, edges, ars):
+    def forward(self, image_features, text_features, content_indices, edges):
 
 
         node_features = torch.zeros((max(content_indices) + 1, self.feature_size), device=image_features.device)
-        # output_features = self.output_learnt_emb(torch.zeros(len(gt_indices),
-        #                                                     device=image_features.device,
-        #                                                     dtype=torch.int64) )
+
         image_features = self.upscale_img(image_features)
         text_features = self.upsale_text(text_features)
-        input_features = torch.cat((image_features, text_features, ars), 1)
+        input_features = torch.cat((image_features, text_features), 1)
         # node_features[gt_indices, ] = output_features
         node_features[content_indices] = input_features
 
@@ -49,22 +47,8 @@ class GraphConv(nn.Module):
             edge_index=edges.T.to(torch.int64).to(image_features.device)
         ))
 
-        angles = self.regression_angle(output_features_node_features)
-
-        angles_left = angles[edges[:, 0], :][:, None, :]
-        angles_right = angles[edges[:, 1], :][:, :, None]
-        angles_prediction = torch.bmm(angles_left, angles_right).squeeze()[:, None]
-
-        distances = self.regression_distance(output_features_node_features)
-
-        dist_left = distances[edges[:, 0], :][:, None, :]
-        dist_right = distances[edges[:, 1], :][:, :, None]
-        dist_prediction = torch.bmm(dist_left, dist_right).squeeze()[:, None]
-
-        prediction = torch.cat((angles_prediction, dist_prediction), dim=-1)
-
         return {
             'image_features': output_features_node_features,
-            'regressed_features': prediction
+            'regressed_features': output_features_node_features
         }
 

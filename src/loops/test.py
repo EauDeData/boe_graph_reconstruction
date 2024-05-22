@@ -8,7 +8,7 @@ def eval_step(joint_model, dataloader, optimizer, loss_f, logger, epoch ):
 
             node_features = joint_model(batch)
 
-            loss = loss_f(node_features['regressed_features'], batch['gt'].to(joint_model.device))
+            loss = loss_f(node_features['document'], node_features['queries'])
 
             total_loss.append(loss)
 

@@ -8,14 +8,14 @@ def train_step(joint_model, dataloader, optimizer, loss_f, logger, epoch ):
 
         node_features = joint_model(batch)
 
-        loss = loss_f(node_features['regressed_features'], batch['gt'].to(joint_model.device))
+        loss = loss_f(node_features['document'], node_features['queries'])
         loss.backward()
         optimizer.step()
 
         total_loss.append(loss)
-        if logger:
-            logger.log({
-                'loss': loss.item(),
-                'epoch': epoch
-            })
+        # if logger:
+        #     logger.log({
+        #         'loss': loss.item(),
+        #         'epoch': epoch
+        #     })
     return total_loss

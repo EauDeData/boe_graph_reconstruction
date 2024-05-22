@@ -4,7 +4,8 @@ import os
 import math
 import json
 import copy
-
+import random
+from tqdm import tqdm
 import numpy as np
 import networkx as nx
 from PIL import Image
@@ -29,12 +30,17 @@ def calculate_angle(x, y, x1, y1):
 
 class BOEDataset:
     def __init__(self, json_split_txt, base_jsons=BASE_JSONS,
-                 replace_path_expression=REPLACE_PATH_EXPR):
+                 replace_path_expression=REPLACE_PATH_EXPR, random_walk_leng=2):
         self.replace = eval(replace_path_expression)
         self.documents = []
-        for line in open(os.path.join(base_jsons, json_split_txt)).readlines():
+        for line in tqdm(open(os.path.join(base_jsons, json_split_txt)).readlines()):
             path = os.path.join(base_jsons, line.strip()).replace('jsons_gt', 'graphs_gt')
-            self.documents.append(path)
+
+            # Avoid empty files
+            if len(json.load(open(path))['pages']['0']):
+                self.documents.append(path)
+
+        self.random_walk_leng = random_walk_leng
             
     def __len__(self):
         return len(self.documents)
@@ -66,6 +72,7 @@ class BOEDataset:
             x_ini, y_ini = graph.nodes[node_in]['centroid']
             x_fin, y_fin = graph.nodes[node_out]['centroid']
 
+
             # TODO: Check the normalization is not crazy AHH norm
             y_ini /= image_height
             y_fin /= image_height
@@ -73,34 +80,54 @@ class BOEDataset:
             x_ini /= image_width
             x_fin /= image_width
 
+            graph.nodes[node_in]['centroid_scaled'] = (x_ini, y_ini)
+            graph.nodes[node_out]['centroid_scaled'] = (x_fin, y_fin)
+
+
             distance = math.sqrt((x_ini - x_fin) ** 2 + (y_ini - y_fin) ** 2)
 
-            # IDK how to operate with the angle
-            angle = calculate_angle(x_ini - x_fin, y_ini - y_fin, x_fin, y_fin)
+            graph[node_in][node_out]['gt'] = distance
 
-            graph[node_in][node_out]['gt'] = (angle,  distance)
-
-            # done.append(f"{node_in}_{node_out}")
-            # node_name = f"pred_{node_in}_{node_out}"
-            # graph.add_node(node_name, is_edge=True, angle=angle_degrees, distance=distance)
-
-            # graph.add_edge(node_in, node_name)
-            # graph.add_edge(node_out, node_name)
-
-            # gt[node_name] = (angle_degrees, distance)
 
         return graph, images, gt
+    @staticmethod
+    def random_walk(graph, leng, seeds):
 
+        nodes = list(graph.nodes())
+        if not len(nodes): return [seeds]
+
+        random_walks = []
+        for current_node in seeds:
+            this_walk = [current_node]
+            for _ in range(leng):
+                possible_paths = list(graph.neighbors(current_node))
+                if not len(possible_paths): break
+                this_walk.append(random.choice(possible_paths))
+                current_node = this_walk[-1]
+            random_walks.append(this_walk)
+        return set(sum(random_walks, start=[]))
     def __getitem__(self, idx):
         path = self.documents[idx]
         json_data = json.load(open(path))
+
         impath = (json_data['path'].replace(*self.replace)
                   .replace('images', 'numpy').replace('.pdf', '.npz'))
         graph_path = impath.replace('.npz', '.gml')
+
         graph, images, gt = self.parse_graph_data(nx.read_gml(graph_path), np.load(impath)['0'])
+
+        target_ocr = max(json_data['pages']['0'], key=lambda x: x['similarity'] if 'similarity' in x else 0)
+
+        selected_initial = [x for x in graph.nodes() if graph.nodes[x]['ocr'] == target_ocr['ocr']][0]
+        nodes_walk = nx.ego_graph(graph, selected_initial) # self.random_walk(graph, self.random_walk_leng, seeds=[selected_initial]*2)
+
+        if len(nodes_walk) > 1:
+            graph = nx.subgraph(graph, [x for x in nodes_walk if selected_initial!=x])
+
         return {
             'graph': graph,
             'input_data': images,
-            'gt': gt
+            'gt': gt,
+            'query': json_data['query']
         }
 

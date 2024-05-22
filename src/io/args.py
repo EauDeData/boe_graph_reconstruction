@@ -9,7 +9,7 @@ def parse_args():
     parser.add_argument('--imsize', type=int, default=224, help='Image size for resizing')
     parser.add_argument('--seq_max_leng', type=int, default=77, help='Maximum sequence length for tokenization')
     parser.add_argument('--num_workers', type=int, default=4, help='Number of workers for data loading')
-    parser.add_argument('--batch_size', type=int, default=8, help='Batch size for training')
+    parser.add_argument('--batch_size', type=int, default=256, help='Batch size for training')
 
     # Model arguments
     parser.add_argument('--text_emb_size', type=int, default=512, help='Size of the text embeddings')
