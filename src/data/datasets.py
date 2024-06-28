@@ -30,14 +30,14 @@ def calculate_angle(x, y, x1, y1):
 
 class BOEDataset:
     def __init__(self, json_split_txt, base_jsons=BASE_JSONS,
-                 replace_path_expression=REPLACE_PATH_EXPR, random_walk_leng=2):
+                 replace_path_expression=REPLACE_PATH_EXPR, random_walk_leng=1):
         self.replace = eval(replace_path_expression)
         self.documents = []
         for line in tqdm(open(os.path.join(base_jsons, json_split_txt)).readlines()):
             path = os.path.join(base_jsons, line.strip()).replace('jsons_gt', 'graphs_gt')
 
             # Avoid empty files
-            if len(json.load(open(path))['pages']['0']):
+            if len(json.load(open(path))['pages']['0']) > 1:
                 self.documents.append(path)
 
         self.random_walk_leng = random_walk_leng
@@ -116,18 +116,19 @@ class BOEDataset:
 
         graph, images, gt = self.parse_graph_data(nx.read_gml(graph_path), np.load(impath)['0'])
 
-        target_ocr = max(json_data['pages']['0'], key=lambda x: x['similarity'] if 'similarity' in x else 0)
+        # target_ocr = max(json_data['pages']['0'], key=lambda x: x['similarity'] if 'similarity' in x else 0)
 
-        selected_initial = [x for x in graph.nodes() if graph.nodes[x]['ocr'] == target_ocr['ocr']][0]
-        nodes_walk = nx.ego_graph(graph, selected_initial) # self.random_walk(graph, self.random_walk_leng, seeds=[selected_initial]*2)
+        selected_initial = random.choice([x for x in graph.nodes()])
+        nodes_walk = nx.ego_graph(graph, selected_initial, radius=self.random_walk_leng)
 
-        if len(nodes_walk) > 1:
-            graph = nx.subgraph(graph, [x for x in nodes_walk if selected_initial!=x])
-
+        graph = nx.subgraph(graph, [x for x in nodes_walk if x != selected_initial])
         return {
             'graph': graph,
             'input_data': images,
             'gt': gt,
-            'query': json_data['query']
+            'query': json_data['query'],
+            'ocr_gt': json_data['ocr_gt'],
+            'visual_query': images[selected_initial],
+            'selected': selected_initial
         }
 

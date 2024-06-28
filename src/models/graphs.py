@@ -41,6 +41,11 @@ class GraphConv(nn.Module):
         node_features[content_indices] = input_features
 
         node_features = self.activation(node_features)
+        if not len(edges):
+            return {
+                'image_features': node_features,
+                'regressed_features': node_features
+            }
 
         output_features_node_features = self.activation(self.gat(
             x=node_features,

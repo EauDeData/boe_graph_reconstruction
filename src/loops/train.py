@@ -8,7 +8,7 @@ def train_step(joint_model, dataloader, optimizer, loss_f, logger, epoch ):
 
         node_features = joint_model(batch)
 
-        loss = loss_f(node_features['document'], node_features['queries'])
+        loss = loss_f(node_features['document'], node_features['queries'], batch=batch)
         loss.backward()
         optimizer.step()
 

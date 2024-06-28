@@ -20,7 +20,7 @@ class Collator:
                                   for key, value in d.items()
                                   }
         nodes2idx_lut = {node: idx for idx, node in enumerate(graphs.nodes())}
-
+        # selected_nodes_idxs = [nodes2idx_lut[sample['selected']] for sample in batch]
         input_nodes_idxs = []
 
         images = []
@@ -55,12 +55,18 @@ class Collator:
         return {
             'images': torch.stack(images),
             'textual_content': torch.stack(text_content),
+            'raw_gt_text': [sample['ocr_gt'] for sample in batch],
+            'raw_queries': [sample['query'] for sample in batch],
             'input_indices': input_nodes_idxs, # Input indices will be niizialized with a vision and text encoder,
             'edges': torch.tensor(edges),
             'queries': queries,
             'batch_indices': nodes_to_batch,
-            'max_padding': max([len(sample['graph'].nodes()) for sample in batch])
-
+            'max_padding': max([len(sample['graph'].nodes()) for sample in batch]),
+            # 'selected_idx': selected_nodes_idxs,
+            'visual_queries': torch.stack([self.transforms(image['image']) for image in
+                                           [sample['visual_query'] for sample in batch]]),
+            'ocr_query': torch.stack([self.tokenizer.tokenize([image['ocr']])[0] for image in
+                                           [sample['visual_query'] for sample in batch]])
         }
 
 

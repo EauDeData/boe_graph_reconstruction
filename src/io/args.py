@@ -6,6 +6,9 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Argument Parser for your script')
 
     # Dataset arguments
+    parser.add_argument('--output_name', type=str, default=None, help='Model output name (leave empty for none)')
+    parser.add_argument('--model_ckpt_name', type=str, default=None, help='Model ckpt name (leave empty for none)')
+
     parser.add_argument('--imsize', type=int, default=224, help='Image size for resizing')
     parser.add_argument('--seq_max_leng', type=int, default=77, help='Maximum sequence length for tokenization')
     parser.add_argument('--num_workers', type=int, default=4, help='Number of workers for data loading')
