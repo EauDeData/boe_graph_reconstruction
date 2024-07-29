@@ -67,14 +67,14 @@ def eval_step(joint_model, dataloader, optimizer, loss_f, logger, epoch ):
         'mAP': []
 
     }
+    joint_model.eval()
     with torch.no_grad():
         for batch in tqdm(dataloader, total=len(dataloader)):
 
-            node_features = joint_model(batch)
-            scores = cosine_similarity_matrix(node_features['queries'], node_features['document'])
+            scores = joint_model.retrieve(batch)
 
             for idx_batch in range(scores.shape[0]):
-                metrics['mAP'].append(average_precision_score(y_true=np.array([i == idx_batch for i in batch['batch_indices']]),
+                metrics['mAP'].append(average_precision_score(y_true=np.array([i == idx_batch for i in range(len(scores[idx_batch]))]),
                                              y_score=scores[idx_batch].cpu().numpy()
                                              ))
 

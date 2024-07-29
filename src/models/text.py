@@ -47,3 +47,16 @@ class TransformerTextEncoder(nn.Module):
         x = self.transformer_encoder(x)
 
         return torch.mean(x, dim=0) # Return the average direction
+
+class PHOCEncoder(nn.Module):
+    def __init__(self, phoc_vector_size, node_size, device='cuda'):
+        super().__init__()
+        self.projection = nn.Sequential(
+            nn.Linear(phoc_vector_size, node_size),
+            nn.ReLU(),
+            nn.Linear(node_size, node_size)
+        )
+        self.device=device
+        self.to(device)
+    def forward(self, batch):
+        return self.projection(batch.to(self.device))
