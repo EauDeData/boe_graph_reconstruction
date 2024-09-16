@@ -1,7 +1,11 @@
 import networkx as nx
 import numpy as np
 import torch
+from torchvision import transforms
+from src.data.defaults import IMAGE_SIZE
+
 from PIL import  Image
+from torch.fx.experimental.unification.unification_tools import keymap
 
 
 def resize_and_pad_images(images, fixed_height, patch_size, max_allowed_width = 128):
@@ -15,7 +19,7 @@ def resize_and_pad_images(images, fixed_height, patch_size, max_allowed_width = 
 
         # new_width = int(aspect_ratio * fixed_height)
         # Adjust new_width to be a multiple of patch_size
-        new_width = new_width = (width + (patch_size - 1)) // patch_size * patch_size
+        new_width = (width + (patch_size - 1)) // patch_size * patch_size
         # print(new_width)
         new_width = min(new_width, max_allowed_width)
         resized_img = img.resize((new_width, fixed_height))
@@ -42,10 +46,14 @@ def resize_and_pad_images(images, fixed_height, patch_size, max_allowed_width = 
     return padded_images
 
 class Collator:
-    def __init__(self, transforms):
+    def __init__(self, tokenizer):
         # self.tokenizer = tokenizer
-        self.transforms = transforms
-        self.transforms.transforms = self.transforms.transforms[2:]
+        self.transforms_ = transforms.Compose([
+                transforms.Resize(IMAGE_SIZE),  # Resize to height 64, width 128
+                transforms.ToTensor(),         # Convert PIL Image to tensor
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # ImageNet normalization
+            ])
+        self.tokenizer = tokenizer
 
     def collate_fn(self, batch):
 
@@ -54,41 +62,28 @@ class Collator:
         images = resize_and_pad_images(images, 64, 16)
 
         #print([im.size for im in images])
-        images = torch.stack([self.transforms(x) for x in images])
+        images = torch.stack([self.transforms_(x) for x in images])
         images_aux_batchs = [len(desc['images']) for batch, desc in enumerate(batch)]
         images_batch_idxs =[[sum(images_aux_batchs[:batch]) + i for i in range(len(desc['images']))]
                          for batch, desc in enumerate(batch)]
 
         # (NUM_QUERIES, 77)
-        queries = torch.stack(sum([x['query'] for x in batch], start=[])).view(-1, 77)
+
+        queries = sum([x['query'] for x in batch], start=[])
+        padding_to = len(max(queries, key=lambda x: len(x)))
+        queries = torch.tensor([que + [0] * (padding_to - len(que)) for que in queries]).view(-1, padding_to)
+
         queries_aux_batchs = [len(desc['query']) for batch, desc in enumerate(batch)]
         queries_batch_idxs =[[sum(queries_aux_batchs[:batch]) + i for i in range(len(desc['query']))]
                          for batch, desc in enumerate(batch)]
-
-        # dates = torch.stack([x['phoc_dates'] for x in batch])
-
-        # ocr_phoc = torch.cat([x['phoc_ocr'] for x in batch], dim=0)
-        # query_phoc = torch.cat([x['phoc_query'] for x in batch], dim=0)
-        #
-        #
-        # ocr_aux_batchs = [desc['phoc_ocr'].shape[0] for batch, desc in enumerate(batch)]
-        # ocr_batch_idxs =[[sum(ocr_aux_batchs[:batch]) + i for i in range(desc['phoc_ocr'].shape[0])]
-        #                  for batch, desc in enumerate(batch)]
-        #
-        # queries_aux_batchs = [desc['phoc_query'].shape[0] for batch, desc in enumerate(batch)]
-
 
         return {
             'images': images,
             'images_batch_idxs': images_batch_idxs,
             'queries': queries,
-            'queries_batch_idxs': queries_batch_idxs
-            # 'phocked_ocr': ocr_phoc,
-            # 'ocrs_batch_idxs': ocr_batch_idxs,
-            # 'phocked_queries': query_phoc,
-            # 'queries_batch_idxs': queries_batch_idx,
-            # # 'dates': dates,
-            # # 'images': images
+            'queries_batch_idxs': queries_batch_idxs,
+            'ocr_words': [x['words'] for x in batch],
+            'query_str': [x['query_str'] for x in batch]
         }
 
 

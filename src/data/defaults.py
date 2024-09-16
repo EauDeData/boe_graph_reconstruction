@@ -8,3 +8,5 @@ CLIP_MODEL_TAG = 'ViT-B-32'
 OUTPUT_FOLDER_NAME = '/data2/users/amolina/leviatan/structured_approaches'
 STOPWORDS = []
 MAX_WORDS=168
+
+IMAGE_SIZE=(64, 16)

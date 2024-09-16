@@ -1,6 +1,9 @@
 import pytesseract
 
 from src.data.defaults import REPLACE_PATH_EXPR, BASE_JSONS, STOPWORDS, MAX_WORDS
+import PIL.ImageOps as imOps
+import cv2
+import unicodedata
 
 import os
 import math
@@ -11,10 +14,114 @@ import random
 from tqdm import tqdm
 import numpy as np
 import networkx as nx
-from PIL import Image
-
+from PIL import Image,  ImageDraw, ImageFont
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+import re
+from nltk.stem import SnowballStemmer
+from src.data.defaults import IMAGE_SIZE
+# Make sure to download stopwords and punkt if you haven't already
+nltk.download('punkt')
+nltk.download('stopwords')
+nltk.download('punkt_tab')
 random.seed(42)
 
+SPANISH_STOPWORDS = set(stopwords.words('spanish'))
+
+
+# def find_optimal_font(draw, text, image_width, image_height, padding=0, fontsize = 1 , font_path="Arial.ttf"):
+#      # Start from the smallest font size
+#
+#
+#     # Increment the font size until it exceeds either the width or height of the image (minus padding)
+#     while True:
+#         fontsize += 1
+#         font = ImageFont.truetype(font_path, fontsize)
+#         # Get bounding box for the text
+#         bbox = draw.textbbox((0, 0), text, font=font)
+#         text_width = bbox[2] - bbox[0]
+#         text_height = bbox[3] - bbox[1]
+#
+#         # If the text exceeds either the width or the height, break the loop
+#         if  (text_width > image_width) or (text_height > image_height):
+#             return ImageFont.truetype(font_path, fontsize)  # We subtract 1 to get the last size that fits
+#
+#
+#
+#
+# def create_template_image(base_image, text):
+#     # Open the base image to get its dimensions
+#     width, height = base_image.size
+#
+#     # Create a new image with the same size as the base image, with a white background
+#     draw = ImageDraw.Draw(base_image)
+#     # Get the optimal font for the text
+#     font = find_optimal_font(draw, text, width, height)
+#
+#     # Get the bounding box of the final text and calculate position
+#     text_bbox = draw.textbbox((0, 0), text, font=font)
+#     text_width = text_bbox[2] - text_bbox[0]
+#     text_height = text_bbox[3] - ( text_bbox[1] + 5)
+#     text_x = 0 # (width - text_width) // 2
+#     text_y = 0 # (height - text_height) // 2
+#
+#     # Add the text to the image
+#     draw.text((text_x, text_y), text, font=font, fill="black")
+#
+#     return base_image
+
+def sanitize_string(input_string: str) -> str:
+    # Normalize the input string to its decomposed form (NFD), separating characters from their accents
+    normalized_string = unicodedata.normalize('NFD', input_string)
+
+    # Filter out all diacritical marks (i.e., non-spacing marks like accents)
+    sanitized_string = ''.join(char for char in normalized_string if not unicodedata.combining(char))
+
+    return sanitized_string
+
+def create_template_image(word, font=cv2.FONT_HERSHEY_SIMPLEX, font_scale=1, font_thickness=2,
+                             color=(255, 255, 255)):
+
+    word = sanitize_string(word)
+
+    # Create a blank image
+    image_size = (500, 500)  # You can adjust the size as needed
+    image = np.zeros((image_size[1], image_size[0], 3), dtype=np.uint8)
+
+    # Set the text size and position
+    text_size, _ = cv2.getTextSize(word, font, font_scale, font_thickness)
+    text_width, text_height = text_size
+    text_x = (image_size[0] - text_width) // 2
+    text_y = (image_size[1] + text_height) // 2
+
+    # Put the text on the image
+    cv2.putText(image, word, (text_x, text_y), font, font_scale, color, font_thickness)
+
+    # Convert the image to grayscale
+    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # Find contours in the image
+    _, binary_image = cv2.threshold(gray_image, 1, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(binary_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Get the bounding box of the first contour (assuming there's only one word)
+    all_contours = np.vstack(contours)
+    x, y, w, h = cv2.boundingRect(all_contours)
+    cropped_image = image[y:y + h, x:x + w]
+    return Image.fromarray(255 - cropped_image).resize(IMAGE_SIZE)
+
+def split_by_punctuation_and_spaces(sentence):
+    # Split by any punctuation or spaces using regex
+    tokens = re.split(r'\W+', sentence)
+
+    # Remove empty tokens
+    tokens = [token for token in tokens if token if not token in SPANISH_STOPWORDS]
+
+    return tokens
+
+def curate_token(token, stemmer):
+    return stemmer(token)
 
 def calculate_angle(x, y, x1, y1):
     # Calculate dot product
@@ -55,20 +162,50 @@ class BOEDataset:
         self.documents = []
         for line in tqdm(open(os.path.join(base_jsons, json_split_txt)).readlines()):
             path = os.path.join(base_jsons, line.strip()).replace('jsons_gt', 'graphs_gt')
-
+            if len(self.documents) > 200: break
             # Avoid empty files
             if len(json.load(open(path))['pages']['0']) > 1:
                 self.documents.append(path)
 
         self.random_walk_leng = random_walk_leng
         self.transforms = transforms
+        self.stemmer = SnowballStemmer('spanish').stem
 
         # at this point this is not even coding this is bullshitting
         # self.transforms.transforms = [resize_image] + self.transforms.transforms[2:]
-        self.tokenizer=tokenizer
+        # TODO: DONT HARDCODE THIS TOKENIZER LOL
+        tokepath = './tokenizer.json'
+        if os.path.exists(tokepath):
+            self.tokenizer = json.load(open(tokepath))
+        else:
+            assert not 'test' in json_split_txt, 'tokenizer might not be computed on test partition!!'
+            self.tokenizer = self.create_token_dict()
+            json.dump(self.tokenizer, open(tokepath, 'w'), indent=2)
+        # self.tokenizer=json.load(open('/data2/users/amolina/oda_ocr_output/oda_giga_tokenizer.json'))
             
     def __len__(self):
         return len(self.documents)
+
+    def create_token_dict(self):
+        token_dict = {'[PAD]': 0, '[UNK]': 1, '[CLS]': 2}
+        # Get Spanish stopwords
+        # Token ID starting point (after special tokens)
+
+        # Tokenize and process each sentence
+        for doc_path in tqdm(self.documents):
+            json_data = json.load(open(doc_path))
+            tokens = split_by_punctuation_and_spaces(json_data['query'].lower())  # Tokenize the sentence
+            # tokens = tokens + split_by_punctuation_and_spaces(json_data['ocr_gt'].lower())
+            for token in tokens:
+                token = curate_token(token, self.stemmer)
+                if not token in token_dict:
+                    token_dict[token] = len(token_dict)
+
+        return token_dict
+
+    def tokenize_sentence(self, sentence):
+        tokens = [curate_token(t, self.stemmer) for t in split_by_punctuation_and_spaces(sentence.lower())]  # Tokenize the sentence
+        return [self.tokenizer['[CLS]']] + [self.tokenizer[token] for token in [t if t in self.tokenizer else '[UNK]' for t in tokens]]
 
     @staticmethod
     def parse_graph_data(graph: nx.Graph, image: np.ndarray):
@@ -199,15 +336,7 @@ class BOEDataset:
     def __getitem__(self, idx):
         path = self.documents[idx]
         json_data = json.load(open(path))
-        # TODO: Is image too slow?
-        # impath = (json_data['path'].replace(*self.replace)
-        #                          .replace('images', 'numpy').replace('.pdf', '.npz'))
-        #
-        # page = json_data['topic_gt']["page"]
-        # segment = json_data['topic_gt']["idx_segment"]
-        # x, y, x2, y2 = json_data['pages'][page][segment]['bbox']
-        #
-        # image = Image.fromarray(np.load(impath)[page][y:y2, x:x2])
+
         crop_path = ((json_data['path'].replace(*self.replace)
                                  .replace('images', 'numpy')
                       .replace('.pdf', '.npz'))
@@ -217,35 +346,46 @@ class BOEDataset:
         words = os.path.join(crop_path, 'words')
 
         # HGHAHAHAHHHAHAHAHAHA TRY TO READ THIS CODE FUCKER
-        wordcrops = [Image.open(os.path.join(crop_path, words, imname)).convert('RGB')
-                     for imname in os.listdir(words) if
-                     len(open(os.path.join(crop_path, words, imname)
-                              .replace('words', 'metadata').replace('.png', '.txt')
-                          ).readlines()[-1].strip()) > 3]
+        croplist = [os.path.join(crop_path, words, x) for x in os.listdir(words)]
+        metadatas = [imname.replace('words', 'metadata').replace('.png', '.txt') for imname in croplist]
+        idxs = list(range(len(croplist)))
+        random.shuffle(idxs)
+        idxs = idxs[:MAX_WORDS]
+
+        croplist = [croplist[i] for i in idxs]
+        metadatas = [metadatas[i] for i in idxs]
+
+        assert  len(croplist) == len(metadatas), f"CROPS: {croplist}\nMETADATAS: {metadatas}"
+        MIN_SIZE = 9
+
+        metadata_files = [open(metadata).readlines() for metadata in metadatas]
+
+        # Extract the words from metadata files and filter based on MIN_SIZE
+        words_thing = [file[-1].strip().split(': ')[-1] for file in metadata_files
+                       if len(file[-1].strip().split(': ')[-1]) > MIN_SIZE]
+
+        # Assuming 'croplist' corresponds to images, and 'words_thing' has matching entries
+        wordcrops = [imOps.invert(Image.open(imname).convert('RGB').resize(IMAGE_SIZE))
+                     for imname, metadata in zip(croplist, metadata_files)
+                     if len(metadata[-1].strip().split(': ')[-1]) > MIN_SIZE]
+
         if not len(wordcrops):
             wordcrops = [Image.new('RGB', (5, 5))]
-        random.shuffle(wordcrops)
-        wordcrops = wordcrops[:MAX_WORDS]
+            words_thing = []
 
         ocr = json_data['ocr_gt']
         query = json_data['query']
-        # date = json_data['date'].split('/')[-1]
-        #
-        # splitted_ocr = ocr.split(' ')
-        # phoc_ocr = torch.tensor([self.phoc_encode(ocr).tolist() for ocr in splitted_ocr], dtype=torch.float32)
-        #
-        # splitted_query = query.split(' ')
-        # phoc_query = torch.tensor([self.phoc_encode(ocr).tolist() for ocr in splitted_query], dtype=torch.float32)
-        #
-        # phoc_dates = torch.tensor(self.phoc_encode(date), dtype=torch.float32)
-
+        query_str = ['[CLS]'] + [q for q in split_by_punctuation_and_spaces(query)]
+        queries_pils = [imOps.invert(create_template_image(t) ) for t in query_str]
+        [q.save(f'tmp/query_{n}_{w}.png') for n,(q, w) in enumerate(zip(queries_pils, query_str))]
+        [q.save(f'tmp/doc_{n}_{w}.png') for n, (q, w) in enumerate(zip(wordcrops, words_thing))]
         return {
-            # 'image': self.transforms(image),
             'ocr': ocr,
-            'query': [self.tokenizer(q) for q in query.split(' ') if not q in STOPWORDS],
-            'images': wordcrops
-            # 'date': date,
-            # 'phoc_ocr': phoc_ocr,
-            # 'phoc_query': phoc_query,
-            # 'phoc_dates': phoc_dates
+            'query': self.tokenize_sentence(query),
+            'images': wordcrops,
+            'words': words_thing,
+            # TODO: Also we need to compute visual prototypes of each token
+            'query_str': query_str,
+            'query_img': queries_pils
+
         }

@@ -22,22 +22,11 @@ import torchvision
 import open_clip
 
 def load_datasets(args):
-    model, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32', pretrained='laion2b_s34b_b79k')
-    tokenizer = open_clip.get_tokenizer('ViT-B-32')
 
-    test_set = BOEDataset('test.txt', transforms=preprocess, tokenizer=tokenizer)
-    train_set = BOEDataset('train.txt', transforms=preprocess, tokenizer=tokenizer)
+    train_set = BOEDataset('train.txt')
+    test_set = BOEDataset('test.txt')
 
-    # transforms = torchvision.transforms.Compose([torchvision.transforms.Resize((args.imsize, args.imsize), ),
-    #                                              torchvision.transforms.ToTensor(),
-    #                                              torchvision.transforms.Normalize(IMAGENET_MEANS, IMAGENET_STDS)], )
-
-    del model
-    del _
-
-    # tokenizer = BERTTokenizer(context_length=args.seq_max_leng)
-    collator = Collator(preprocess)
-
+    collator = Collator(train_set.tokenizer)
     return [DataLoader(data,
                        collate_fn=collator.collate_fn,
                        num_workers=args.num_workers,
@@ -67,7 +56,7 @@ def main(args):
     (train_loader, test_loader), collator = load_datasets(args)
     # text_model, visual_model, graph_model, queries_model = load_models(args, collator)
     # joint_model = JointModel(visual_model, text_model, graph_model, queries_model)
-    joint_model = JointModel(768, args.graph_out_channels, swap=True, device=args.device)
+    joint_model = JointModel(len(train_loader.dataset.tokenizer), 128, swap=False, device=args.device)
     if isinstance(args.model_ckpt_name, str):
         joint_model.load_state_dict(torch.load(args.model_ckpt_name))
 
@@ -96,11 +85,13 @@ def main(args):
         if logger:
             logger.log({'epoch_loss': sum(losses) / len(losses)})
         print("Trained with avg loss:", sum(losses) / len(losses))
+
         print(f"Testing epoch {epoch} out {args.epoches}")
         losses = eval_step(joint_model, test_loader, optimizer, None, logger, epoch)
         if logger:
             logger.log(losses)
         print("Tested with avg loss:", losses)
+
 
 
 if __name__ == '__main__':
