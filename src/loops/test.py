@@ -61,22 +61,37 @@ def get_retrieval_metrics(x, y, dist = cosine_similarity_matrix, img2text = Fals
 
     return metrics
 
+
+def rank_distance_to_self(distance_matrix):
+    distances_from_rank_1 = []
+
+    for i, row in enumerate(distance_matrix):
+        # Rank the distances in the row (smaller distance is better, so argsort ascending)
+        sorted_indices = np.argsort(row)  # Indices of sorted elements (ascending)
+
+        # Find the rank of the diagonal element
+        rank_of_diagonal = np.where(sorted_indices == i)[0][0] + 1  # Convert 0-indexed to rank
+
+        # Distance from the first rank
+        distance_from_rank_1 = rank_of_diagonal - 1
+        distances_from_rank_1.append(distance_from_rank_1)
+
+    return distances_from_rank_1
+
 def eval_step(joint_model, dataloader, optimizer, loss_f, logger, epoch ):
 
     metrics = {
-        'mAP': []
+        'ranking_position': []
 
     }
     joint_model.eval()
     with torch.no_grad():
         for batch in tqdm(dataloader, total=len(dataloader)):
 
-            scores = joint_model.retrieve(batch)
+            scores = joint_model.retrieve(batch).detach().cpu().numpy()
+            metrics['ranking_position'].extend(rank_distance_to_self(scores))
 
-            for idx_batch in range(scores.shape[0]):
-                metrics['mAP'].append(average_precision_score(y_true=np.array([i == idx_batch for i in range(len(scores[idx_batch]))]),
-                                             y_score=scores[idx_batch].cpu().numpy()
-                                             ))
+
 
 
 

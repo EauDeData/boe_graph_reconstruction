@@ -160,24 +160,24 @@ class JointModel(nn.Module):
                 distance_matrix_hd[i, j] = \
                     (sum(self.hungarian_distance(dense_doc_features[i].unsqueeze(0), dense_query_features[j].unsqueeze(0))) / 2).squeeze()
 
+        #
+        # # print(f"Dense query features", dense_query_features.shape)
+        # visual_cls = self.v_cls.repeat(dense_query_features.shape[0], 1).unsqueeze(1)
+        # # print('Visual cls shape', visual_cls.shape)
+        # dense_query_features_with_cls = torch.cat((visual_cls, dense_query_features), dim=1)
+        # # print(f"visual cls {visual_cls.shape}, pre visual cls dense query {dense_query_features.shape},"
+        # #       f"post cls {dense_query_features_with_cls.shape}")
+        #
+        # dense_vision_features_with_cls = torch.cat((visual_cls, dense_doc_features), dim=1)
+        #
+        # word_and_lang_features = torch.cat((dense_query_features_with_cls,
+        #                                     query_tokens_embedding), dim = 2)
+        # # print('word and lang features', word_and_lang_features.shape)
+        #
+        # aggregated_query_features = self.text_agg(self.pos(self.text_downscale(word_and_lang_features)))[:, 0]
+        # aggregated_doc_features = self.visual_agg(self.pos(self.vision_project(dense_vision_features_with_cls)))[:, 0]
 
-        # print(f"Dense query features", dense_query_features.shape)
-        visual_cls = self.v_cls.repeat(dense_query_features.shape[0], 1).unsqueeze(1)
-        # print('Visual cls shape', visual_cls.shape)
-        dense_query_features_with_cls = torch.cat((visual_cls, dense_query_features), dim=1)
-        # print(f"visual cls {visual_cls.shape}, pre visual cls dense query {dense_query_features.shape},"
-        #       f"post cls {dense_query_features_with_cls.shape}")
-
-        dense_vision_features_with_cls = torch.cat((visual_cls, dense_doc_features), dim=1)
-
-        word_and_lang_features = torch.cat((dense_query_features_with_cls,
-                                            query_tokens_embedding), dim = 2)
-        # print('word and lang features', word_and_lang_features.shape)
-
-        aggregated_query_features = self.text_agg(self.pos(self.text_downscale(word_and_lang_features)))[:, 0]
-        aggregated_doc_features = self.visual_agg(self.pos(self.vision_project(dense_vision_features_with_cls)))[:, 0]
-
-        return distance_matrix_hd * .5 + .5 * self.hungarian_distance.cdist(aggregated_doc_features, aggregated_query_features)
+        return distance_matrix_hd
 
 
 
