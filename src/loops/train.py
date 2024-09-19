@@ -6,13 +6,11 @@ def train_step(joint_model, dataloader, optimizer, loss_f, logger, epoch ):
     for batch in tqdm(dataloader, total = len(dataloader)):
 
         optimizer.zero_grad()
-        exit()
         loss = joint_model(batch)
-        if logger:
-            logger.log(loss)
+        # if logger:
+        #     logger.log(loss)
 
         # loss = loss['bipartite_loss'] + loss['context_loss']
-        loss = loss['context_loss']
         loss.backward()
         optimizer.step()
 

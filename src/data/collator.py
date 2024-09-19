@@ -57,33 +57,27 @@ class Collator:
 
     def collate_fn(self, batch):
 
-        # (NUM_IMAGES, 3, 224, 224)
         images = sum([x['images'] for x in batch], start=[])
-        images = resize_and_pad_images(images, 64, 16)
-
-        #print([im.size for im in images])
         images = torch.stack([self.transforms_(x) for x in images])
-        images_aux_batchs = [len(desc['images']) for batch, desc in enumerate(batch)]
-        images_batch_idxs =[[sum(images_aux_batchs[:batch]) + i for i in range(len(desc['images']))]
-                         for batch, desc in enumerate(batch)]
+        images_batch_idxs = sum([[n] * len(im['images']) for n, im, in enumerate(batch)], start = [])
 
-        # (NUM_QUERIES, 77)
+        images_query = sum([x['query_img'] for x in batch], start=[])
+        images_query = torch.stack([self.transforms_(x) for x in images_query])
+        images_query_batch_idxs = sum([[n] * len(im['query_img']) for n, im, in enumerate(batch)], start=[])
 
-        queries = sum([x['query'] for x in batch], start=[])
-        padding_to = len(max(queries, key=lambda x: len(x)))
-        queries = torch.tensor([que + [0] * (padding_to - len(que)) for que in queries]).view(-1, padding_to)
+        query_tokens = [x['query'] for x in batch]
+        total_padding = max([len(x) for x in query_tokens])
+        query_tokens = [x + [0]*(total_padding - len(x)) for x in query_tokens]
 
-        queries_aux_batchs = [len(desc['query']) for batch, desc in enumerate(batch)]
-        queries_batch_idxs =[[sum(queries_aux_batchs[:batch]) + i for i in range(len(desc['query']))]
-                         for batch, desc in enumerate(batch)]
+        # print([len(x['query']) - len(x['query_img']) for x in batch])
+        # print([len(x['query_img']) for x in batch])
 
         return {
-            'images': images,
-            'images_batch_idxs': images_batch_idxs,
-            'queries': queries,
-            'queries_batch_idxs': queries_batch_idxs,
-            'ocr_words': [x['words'] for x in batch],
-            'query_str': [x['query_str'] for x in batch]
+            'images_document': images,
+            'idx_images_document': torch.tensor(images_batch_idxs),
+            'images_query': images_query,
+            'idx_images_query': torch.tensor(images_query_batch_idxs),
+            'query_text_tokens': torch.tensor(query_tokens, dtype=torch.int32)
         }
 
 

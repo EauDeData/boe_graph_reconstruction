@@ -28,6 +28,7 @@ def load_datasets(args):
 
     collator = Collator(train_set.tokenizer)
     return [DataLoader(data,
+                       drop_last=True,
                        collate_fn=collator.collate_fn,
                        num_workers=args.num_workers,
                        batch_size=args.batch_size,

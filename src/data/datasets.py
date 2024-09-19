@@ -4,11 +4,13 @@ from src.data.defaults import REPLACE_PATH_EXPR, BASE_JSONS, STOPWORDS, MAX_WORD
 import PIL.ImageOps as imOps
 import cv2
 import unicodedata
-
+from src.data.datautils import extract_center
 import os
 import math
 import torch
 import json
+import shutil
+
 import copy
 import random
 from tqdm import tqdm
@@ -28,48 +30,6 @@ nltk.download('punkt_tab')
 random.seed(42)
 
 SPANISH_STOPWORDS = set(stopwords.words('spanish'))
-
-
-# def find_optimal_font(draw, text, image_width, image_height, padding=0, fontsize = 1 , font_path="Arial.ttf"):
-#      # Start from the smallest font size
-#
-#
-#     # Increment the font size until it exceeds either the width or height of the image (minus padding)
-#     while True:
-#         fontsize += 1
-#         font = ImageFont.truetype(font_path, fontsize)
-#         # Get bounding box for the text
-#         bbox = draw.textbbox((0, 0), text, font=font)
-#         text_width = bbox[2] - bbox[0]
-#         text_height = bbox[3] - bbox[1]
-#
-#         # If the text exceeds either the width or the height, break the loop
-#         if  (text_width > image_width) or (text_height > image_height):
-#             return ImageFont.truetype(font_path, fontsize)  # We subtract 1 to get the last size that fits
-#
-#
-#
-#
-# def create_template_image(base_image, text):
-#     # Open the base image to get its dimensions
-#     width, height = base_image.size
-#
-#     # Create a new image with the same size as the base image, with a white background
-#     draw = ImageDraw.Draw(base_image)
-#     # Get the optimal font for the text
-#     font = find_optimal_font(draw, text, width, height)
-#
-#     # Get the bounding box of the final text and calculate position
-#     text_bbox = draw.textbbox((0, 0), text, font=font)
-#     text_width = text_bbox[2] - text_bbox[0]
-#     text_height = text_bbox[3] - ( text_bbox[1] + 5)
-#     text_x = 0 # (width - text_width) // 2
-#     text_y = 0 # (height - text_height) // 2
-#
-#     # Add the text to the image
-#     draw.text((text_x, text_y), text, font=font, fill="black")
-#
-#     return base_image
 
 def sanitize_string(input_string: str) -> str:
     # Normalize the input string to its decomposed form (NFD), separating characters from their accents
@@ -162,7 +122,7 @@ class BOEDataset:
         self.documents = []
         for line in tqdm(open(os.path.join(base_jsons, json_split_txt)).readlines()):
             path = os.path.join(base_jsons, line.strip()).replace('jsons_gt', 'graphs_gt')
-            if len(self.documents) > 200: break
+            if len(self.documents) > 60: break
             # Avoid empty files
             if len(json.load(open(path))['pages']['0']) > 1:
                 self.documents.append(path)
@@ -204,84 +164,8 @@ class BOEDataset:
         return token_dict
 
     def tokenize_sentence(self, sentence):
-        tokens = [curate_token(t, self.stemmer) for t in split_by_punctuation_and_spaces(sentence.lower())]  # Tokenize the sentence
-        return [self.tokenizer['[CLS]']] + [self.tokenizer[token] for token in [t if t in self.tokenizer else '[UNK]' for t in tokens]]
-
-    @staticmethod
-    def parse_graph_data(graph: nx.Graph, image: np.ndarray):
-        # Here we transform the graph into something we can actually use
-        # Assign "is_edge=False" to all nodes
-        image_height, image_width, _ = image.shape
-        # image_height /= 2
-        # image_width /= 2
-
-        images = {}
-        gt = {}
-        for node in graph.nodes():
-            x1, y1, x2, y2 = graph.nodes[node]['bbox']
-            graph.nodes[node]['is_edge'] = False
-            graph.nodes[node]['width'] = (x2 - x1) / image_width
-            graph.nodes[node]['height'] = (y2 - y1) / image_height
-            graph.nodes[node]['aspect_ratio'] = 0 if not (y2 - y1) else (x2 - x1) / (y2 - y1)
-
-            images[node] = {'image': Image.fromarray(image[y1:y2, x1:x2]).resize((224, 224)), 'ocr': graph.nodes[node]['ocr']}
-
-        done = []
-        for edge in list(graph.edges()):
-
-            node_in, node_out = edge # From here we want to extract the GT node
-
-            x_ini, y_ini = graph.nodes[node_in]['centroid']
-            x_fin, y_fin = graph.nodes[node_out]['centroid']
-
-
-            # TODO: Check the normalization is not crazy AHH norm
-            y_ini /= image_height
-            y_fin /= image_height
-
-            x_ini /= image_width
-            x_fin /= image_width
-
-            graph.nodes[node_in]['centroid_scaled'] = (x_ini, y_ini)
-            graph.nodes[node_out]['centroid_scaled'] = (x_fin, y_fin)
-
-
-            distance = math.sqrt((x_ini - x_fin) ** 2 + (y_ini - y_fin) ** 2)
-
-            graph[node_in][node_out]['gt'] = distance
-
-
-        return graph, images, gt
-    @staticmethod
-    def random_walk(graph, leng, seeds):
-
-        nodes = list(graph.nodes())
-        if not len(nodes): return [seeds]
-
-        random_walks = []
-        for current_node in seeds:
-            this_walk = [current_node]
-            for _ in range(leng):
-                possible_paths = list(graph.neighbors(current_node))
-                if not len(possible_paths): break
-                this_walk.append(random.choice(possible_paths))
-                current_node = this_walk[-1]
-            random_walks.append(this_walk)
-        return set(sum(random_walks, start=[]))
-    @staticmethod
-    def phoc_encode(word, levels = 3):
-        word = ''.join(char for char in word if ord(char) < 128)
-        descriptor = []
-        for L in range(levels):
-            splitted_word = split_string_n_chunks(word, L + 1)
-
-            for piece in splitted_word:
-                level = [0 for _ in range(128)]
-                for char in piece:
-                    level[ord(char)] += 1
-                descriptor.extend(level)
-
-        return np.array(descriptor)
+        tokens = [curate_token(t.lower(), self.stemmer) for t in sentence]  # Tokenize the sentence
+        return [self.tokenizer['[CLS]']] + [self.tokenizer.get(token, self.tokenizer['[UNK]']) for token in tokens]
 
     def crop_dataset(self):
 
@@ -346,28 +230,35 @@ class BOEDataset:
         words = os.path.join(crop_path, 'words')
 
         # HGHAHAHAHHHAHAHAHAHA TRY TO READ THIS CODE FUCKER
-        croplist = [os.path.join(crop_path, words, x) for x in os.listdir(words)]
+        croplist = [os.path.join(crop_path, words, x) for x in sorted(os.listdir(words), key=lambda x: int(x.split('.')[0]))]
         metadatas = [imname.replace('words', 'metadata').replace('.png', '.txt') for imname in croplist]
-        idxs = list(range(len(croplist)))
-        random.shuffle(idxs)
-        idxs = idxs[:MAX_WORDS]
+        # idxs = list(range(len(croplist)))
+        # random.shuffle(idxs)
+        # idxs = idxs[:MAX_WORDS]
 
-        croplist = [croplist[i] for i in idxs]
-        metadatas = [metadatas[i] for i in idxs]
+        # croplist = [croplist[i] for i in idxs]
+        # metadatas = [metadatas[i] for i in idxs]
 
         assert  len(croplist) == len(metadatas), f"CROPS: {croplist}\nMETADATAS: {metadatas}"
-        MIN_SIZE = 9
+        MIN_SIZE = 1
 
         metadata_files = [open(metadata).readlines() for metadata in metadatas]
+        # centers = [extract_center(lines) for lines in metadata_files
+        #            if len(lines[-1].strip().split(': ')[-1]) > MIN_SIZE]
 
         # Extract the words from metadata files and filter based on MIN_SIZE
         words_thing = [file[-1].strip().split(': ')[-1] for file in metadata_files
                        if len(file[-1].strip().split(': ')[-1]) > MIN_SIZE]
+        # crop_image = Image.open(os.path.join(crop_path, 'crop.png'))
+        # crop_image.save('tmp/crop.png')
+
+        # shutil.copytree(crop_path, 'tmp/crops', dirs_exist_ok=True)
 
         # Assuming 'croplist' corresponds to images, and 'words_thing' has matching entries
         wordcrops = [imOps.invert(Image.open(imname).convert('RGB').resize(IMAGE_SIZE))
                      for imname, metadata in zip(croplist, metadata_files)
                      if len(metadata[-1].strip().split(': ')[-1]) > MIN_SIZE]
+
 
         if not len(wordcrops):
             wordcrops = [Image.new('RGB', (5, 5))]
@@ -375,13 +266,16 @@ class BOEDataset:
 
         ocr = json_data['ocr_gt']
         query = json_data['query']
-        query_str = ['[CLS]'] + [q for q in split_by_punctuation_and_spaces(query)]
+        query_str =  [q for q in split_by_punctuation_and_spaces(query)]
         queries_pils = [imOps.invert(create_template_image(t) ) for t in query_str]
-        [q.save(f'tmp/query_{n}_{w}.png') for n,(q, w) in enumerate(zip(queries_pils, query_str))]
-        [q.save(f'tmp/doc_{n}_{w}.png') for n, (q, w) in enumerate(zip(wordcrops, words_thing))]
+        # print(query_str, len(query_str))
+        # print('pils of query:', len(queries_pils))
+        # print('tokenized len: ', len( self.tokenize_sentence(query_str)))
+        # print( self.tokenize_sentence(query_str))
+
         return {
             'ocr': ocr,
-            'query': self.tokenize_sentence(query),
+            'query': self.tokenize_sentence(query_str),
             'images': wordcrops,
             'words': words_thing,
             # TODO: Also we need to compute visual prototypes of each token
