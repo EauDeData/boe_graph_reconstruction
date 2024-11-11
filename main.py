@@ -7,7 +7,6 @@ from src.data.collator import Collator
 from src.tokenizer.text import BERTTokenizer
 from src.data.defaults import IMAGENET_STDS, IMAGENET_MEANS, OUTPUT_FOLDER_NAME
 from src.models.text import TransformerTextEncoder
-from src.models.vision import CLIPVisionEncoder
 from src.models.graphs import GraphConv
 from src.models.utils import JointModel
 from src.loops.train import train_step
@@ -32,20 +31,20 @@ def load_datasets(args):
                        collate_fn=collator.collate_fn,
                        num_workers=args.num_workers,
                        batch_size=args.batch_size,
-                       shuffle=[True, True][n]) for n, data in enumerate((train_set, test_set))], collator
+                       shuffle=[True, False][n]) for n, data in enumerate((train_set, test_set))], collator
 
-def load_models(args, collator):
-    num_tokens = len(collator.tokenizer)
-    args.text_emb_size += args.text_emb_size % args.num_text_heads
-    text_model = TransformerTextEncoder(num_tokens, args.text_emb_size, args.num_text_heads, args.num_text_layers,device=args.device).to(args.device)
-    queries_model = TransformerTextEncoder(num_tokens, args.graph_out_channels * 2, args.num_text_heads, args.num_text_layers,device=args.device).to(args.device)
-    visual_model = CLIPVisionEncoder(device=args.device).to(args.device)
-    # When using clip, it is 768. In the future it will be not hardcoded
-    graph_model = GraphConv(args.text_emb_size, 768, args.graph_in_channels,
-                            args.graph_hidden_channels, args.graph_depth, args.graph_out_channels, num_categories=2,
-                            device=args.device).to(args.device)
-
-    return text_model, visual_model, graph_model, queries_model
+# def load_models(args, collator):
+#     num_tokens = len(collator.tokenizer)
+#     args.text_emb_size += args.text_emb_size % args.num_text_heads
+#     text_model = TransformerTextEncoder(num_tokens, args.text_emb_size, args.num_text_heads, args.num_text_layers,device=args.device).to(args.device)
+#     queries_model = TransformerTextEncoder(num_tokens, args.graph_out_channels * 2, args.num_text_heads, args.num_text_layers,device=args.device).to(args.device)
+#     visual_model = CLIPVisionEncoder(device=args.device).to(args.device)
+#     # When using clip, it is 768. In the future it will be not hardcoded
+#     graph_model = GraphConv(args.text_emb_size, 768, args.graph_in_channels,
+#                             args.graph_hidden_channels, args.graph_depth, args.graph_out_channels, num_categories=2,
+#                             device=args.device).to(args.device)
+#
+#     return text_model, visual_model, graph_model, queries_model
 def get_learning_rates(optimizer):
     lr_dict = {}
     for i, param_group in enumerate(optimizer.param_groups):
@@ -57,7 +56,11 @@ def main(args):
     (train_loader, test_loader), collator = load_datasets(args)
     # text_model, visual_model, graph_model, queries_model = load_models(args, collator)
     # joint_model = JointModel(visual_model, text_model, graph_model, queries_model)
-    joint_model = JointModel(len(train_loader.dataset.tokenizer), 128, swap=False, device=args.device)
+    joint_model = JointModel(len(train_loader.dataset.tokenizer), args.tokens_dim,
+                             margin=args.margin, local_p = args.local_p_loss,
+                             global_p=args.global_p_loss, topic_p=args.topic_p_loss,
+                             device=args.device, args=args)
+
     if isinstance(args.model_ckpt_name, str):
         joint_model.load_state_dict(torch.load(args.model_ckpt_name))
 
@@ -72,7 +75,13 @@ def main(args):
     else:
         logger = None
 
-    for epoch in range(args.epoches):
+    losses = eval_step(joint_model, test_loader, optimizer, None, logger, 0)
+
+    if logger:
+        logger.log(losses)
+    print("Random baseline tested with avg loss:", losses)
+
+    for epoch in range(1, args.epoches):
         if logger:
             logger.log(get_learning_rates(optimizer))
 

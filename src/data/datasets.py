@@ -122,7 +122,7 @@ class BOEDataset:
         self.documents = []
         for line in tqdm(open(os.path.join(base_jsons, json_split_txt)).readlines()):
             path = os.path.join(base_jsons, line.strip()).replace('jsons_gt', 'graphs_gt')
-            # if len(self.documents) > 60: break
+            # if len(self.documents) > 65: break
             # Avoid empty files
             if len(json.load(open(path))['pages']['0']) > 1:
                 self.documents.append(path)
@@ -240,7 +240,7 @@ class BOEDataset:
         # metadatas = [metadatas[i] for i in idxs]
 
         assert  len(croplist) == len(metadatas), f"CROPS: {croplist}\nMETADATAS: {metadatas}"
-        MIN_SIZE = 1
+        MIN_SIZE = 2
 
         metadata_files = [open(metadata).readlines() for metadata in metadatas]
         # centers = [extract_center(lines) for lines in metadata_files
@@ -248,7 +248,7 @@ class BOEDataset:
 
         # Extract the words from metadata files and filter based on MIN_SIZE
         words_thing = [file[-1].strip().split(': ')[-1] for file in metadata_files
-                       if len(file[-1].strip().split(': ')[-1]) > MIN_SIZE]
+                       if len(file[-1].strip().split(': ')[-1]) > MIN_SIZE][:MAX_WORDS]
         # crop_image = Image.open(os.path.join(crop_path, 'crop.png'))
         # crop_image.save('tmp/crop.png')
 
@@ -257,7 +257,7 @@ class BOEDataset:
         # Assuming 'croplist' corresponds to images, and 'words_thing' has matching entries
         wordcrops = [imOps.invert(Image.open(imname).convert('RGB').resize(IMAGE_SIZE))
                      for imname, metadata in zip(croplist, metadata_files)
-                     if len(metadata[-1].strip().split(': ')[-1]) > MIN_SIZE]
+                     if len(metadata[-1].strip().split(': ')[-1]) > MIN_SIZE][:MAX_WORDS]
 
 
         if not len(wordcrops):
@@ -266,7 +266,7 @@ class BOEDataset:
 
         ocr = json_data['ocr_gt']
         query = json_data['query']
-        query_str =  [q for q in split_by_punctuation_and_spaces(query)]
+        query_str =  [q for q in split_by_punctuation_and_spaces(query)][:MAX_WORDS]
         queries_pils = [imOps.invert(create_template_image(t) ) for t in query_str]
         # print(query_str, len(query_str))
         # print('pils of query:', len(queries_pils))

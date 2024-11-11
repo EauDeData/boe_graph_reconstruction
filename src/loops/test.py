@@ -78,22 +78,90 @@ def rank_distance_to_self(distance_matrix):
 
     return distances_from_rank_1
 
-def eval_step(joint_model, dataloader, optimizer, loss_f, logger, epoch ):
+def eval_step(joint_model, dataloader, optimizer, loss_f, logger, epoch, single_batch = False):
 
-    metrics = {
-        'ranking_position': []
+    metrics = {key: {'acc@10': [], 'acc@5': [], 'acc@1': [], 'ranking_position': []} for key in ['doc2query', 'query2doc']}
 
-    }
     joint_model.eval()
+    loss_buffer = []
+
+    skipped = []
     with torch.no_grad():
-        for batch in tqdm(dataloader, total=len(dataloader)):
+        for i, big_batch in tqdm(enumerate(dataloader), total=len(dataloader)):
 
-            scores = joint_model.retrieve(batch).detach().cpu().numpy()
-            metrics['ranking_position'].extend(rank_distance_to_self(scores))
+            loss_buffer.append(joint_model(big_batch).item())
+
+            documents = []
+            queries = []
+
+            (dense_doc_features, doc_features_mask), (dense_query_features, query_features_mask), _ = joint_model.common_process(big_batch)
+            if single_batch:
+                dense_doc_features = dense_doc_features.squeeze()[None, :]
+                dense_query_features = dense_query_features.squeeze()[None, :]
+
+            if len(dense_doc_features.shape) == 2 or len(dense_query_features.shape) == 2: continue
+
+            # print(big_batch['idx_images_document'], doc_features_mask)
+            t1_edges = joint_model.hungarian_distance.produce_reading_order_edges(dense_doc_features.shape[1]).to(joint_model.device)
+            t2_edges = joint_model.hungarian_distance.produce_reading_order_edges(dense_query_features.shape[1]).to(joint_model.device)
+            message_passed_t1 = [joint_model.hungarian_distance.gat(
+                x=dense_doc_features[i],
+                edge_index=t1_edges
+            ) for i in range(dense_doc_features.shape[0])]
+
+            message_passed_t2 = [joint_model.hungarian_distance.gat(
+                x=dense_query_features[i],
+                edge_index=t2_edges
+            ) for i in range(dense_query_features.shape[0])]
+
+            documents.extend([{'document_features': dense_doc_features[i][doc_features_mask[i]], 'context_doc_features': message_passed_t1[i][doc_features_mask[i]]} for i in range(dense_doc_features.shape[0])])
+            queries.extend([{'query_features': dense_query_features[i][query_features_mask[i]], 'context_query_features': message_passed_t2[i][query_features_mask[i]]} for i in range(dense_query_features.shape[0])])
+
+            for i, (query, document) in enumerate(zip(queries, documents)):
+
+                # Lists to store distances for current query/document pair
+                doc2query_dists = []
+                query2doc_dists = []
+
+                # Loop over the entire set to compute distances
+                for j, (query_j, document_j) in enumerate(zip(queries, documents)):
+                    # Document to Query distance
+                    doc2query_d = joint_model.hungarian_distance.haussdorf_distance(
+                        document['document_features'], query_j['query_features'],
+                        document['context_doc_features'], query_j['context_query_features']
+                    )
+                    doc2query_dists.append(doc2query_d.detach().cpu())
+
+                    # Query to Document distance
+                    query2doc_d = joint_model.hungarian_distance.haussdorf_distance(
+                        document_j['document_features'], query['query_features'],
+                        document_j['context_doc_features'], query['context_query_features']
+                    )
+                    query2doc_dists.append(query2doc_d.detach().cpu())
+
+                # Sort distances and get indices (for ranking purposes)
+                doc2query_sorted_idx = np.argsort(doc2query_dists)  # Ascending order
+                query2doc_sorted_idx = np.argsort(query2doc_dists)
+
+                # Find the position (rank) of the current document/query
+                doc2query_rank = np.where(doc2query_sorted_idx == i)[0][0]  # Rank of the current document in doc2query
+                query2doc_rank = np.where(query2doc_sorted_idx == i)[0][0]  # Rank of the current query in query2doc
+
+                # Update doc2query metrics
+                metrics['doc2query']['acc@1'].append(1 if doc2query_rank < 1 else 0)
+                metrics['doc2query']['acc@5'].append(1 if doc2query_rank < 5 else 0)
+                metrics['doc2query']['acc@10'].append(1 if doc2query_rank < 10 else 0)
+                metrics['doc2query']['ranking_position'].append(doc2query_rank)
+
+                # Update query2doc metrics
+                metrics['query2doc']['acc@1'].append(1 if query2doc_rank < 1 else 0)
+                metrics['query2doc']['acc@5'].append(1 if query2doc_rank < 5 else 0)
+                metrics['query2doc']['acc@10'].append(1 if query2doc_rank < 10 else 0)
+                metrics['query2doc']['ranking_position'].append(query2doc_rank)
 
 
-
-
-
-    metrics = {x: sum(y) / len(y) for x, y in zip(metrics, metrics.values())}
+    for key in metrics:
+        for k in metrics[key]:
+            metrics[key][k] = np.mean(metrics[key][k])
+    metrics['evaluation_loss'] = sum(loss_buffer) / len(loss_buffer)
     return metrics
