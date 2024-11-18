@@ -126,14 +126,14 @@ def eval_step(joint_model, dataloader, optimizer, loss_f, logger, epoch, single_
                 # Loop over the entire set to compute distances
                 for j, (query_j, document_j) in enumerate(zip(queries, documents)):
                     # Document to Query distance
-                    doc2query_d = joint_model.hungarian_distance.haussdorf_distance(
+                    doc2query_d = joint_model.hungarian_distance.hungarian_distance(
                         document['document_features'], query_j['query_features'],
                         document['context_doc_features'], query_j['context_query_features']
                     )
                     doc2query_dists.append(doc2query_d.detach().cpu())
 
                     # Query to Document distance
-                    query2doc_d = joint_model.hungarian_distance.haussdorf_distance(
+                    query2doc_d = joint_model.hungarian_distance.hungarian_distance(
                         document_j['document_features'], query['query_features'],
                         document_j['context_doc_features'], query['context_query_features']
                     )

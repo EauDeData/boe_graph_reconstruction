@@ -157,6 +157,10 @@ class SoftHd(SoftHungarian):
         self.node_ins_cost = nn.Sequential( nn.Linear(args[0], args[0] // 2),
                                            nn.ReLU(True),
                                            nn.Linear(args[0] //2, 1))
+
+        self.del_cost_per_page = nn.Embedding(5000, 1)
+        self.ins_cost_per_page = nn.Embedding(5000, 1)
+
         self.p = 2
 
     def cdist(self, set1, set2):
@@ -208,10 +212,14 @@ class SoftHd(SoftHungarian):
         # Compute insertion/deletion cost for the first context embedding set (h1).
         # The function `node_ins_del_cost` presumably computes the cost of adding/deleting nodes (context vectors).
         # The costs are adjusted by adding 0.5, then taking the absolute value and squeezing any extra dimensions.
-        d1 = self.td + self.node_del_cost(p1).abs().squeeze()
+        # TODO: I'm now making td a function of the size of the page
+        # But this is pure bullshit
+        p1len = len(p1)
+        p2len = len(p2)
+        d1 = self.del_cost_per_page(torch.tensor([i for i in range(max(0, p1len-5), p1len)], dtype=torch.int64, device=self.device)).mean() + self.node_del_cost(p1).abs().squeeze()
 
         # Similarly, compute insertion/deletion cost for the second context embedding set (h2).
-        d2 = self.ti + self.node_ins_cost(p2).abs().squeeze()
+        d2 = self.ins_cost_per_page(torch.tensor([i for i in range(max(0, p2len-5), p2len)], dtype=torch.int64, device=self.device)).mean() + self.node_ins_cost(p2).abs().squeeze()
 
         # Find the minimum distance for each element in the first set (`p2`/`h2`), across all elements of the second set (`p1`/`h1`).
         # `dist_matrix.min(0)` returns the minimum values along the 0th axis (set2), along with the indices.
